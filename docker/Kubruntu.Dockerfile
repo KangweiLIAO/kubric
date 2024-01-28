@@ -7,7 +7,7 @@
 #   kubricdockerhub/kubruntu:latest \
 #   python3 examples/helloworld.py
 
-FROM kubricdockerhub/blender:latest
+FROM vivalab/blender:latest
 
 WORKDIR /kubric
 
@@ -27,7 +27,7 @@ RUN rm -f requirements_full.txt
 # --- Silences tensorflow
 ENV TF_CPP_MIN_LOG_LEVEL="3"
 
-# --- Install Kubric
+# --- Install Kubric, run `python setup.py bdist_wheel` locally first
 COPY dist/kubric*.whl .
 RUN pip3 install `ls kubric*.whl`
 RUN rm -f kubric*.whl

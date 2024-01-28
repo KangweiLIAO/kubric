@@ -1,124 +1,73 @@
-# Compiles a docker image for blender w/ "import bpy support"
-# 
-# Compilation happens in two stages:
-# 1) Compiles blender from source.
-# 2) Installs previously built bpy module along with other dependencies in a fresh image.
-# This two stage process reduces the size of the final image because it doesn't include
-# the files and dependencies of the build process.
+# This Dockerfile is based on the original Dockerfile from the Kubric project
+# Original Source: https://github.com/google-research/kubric/tree/main
 
-# #################################################################################################
-# Stage 1
-# #################################################################################################
+# Modifications made:
+# - Update to Ubuntu 22.04 (Jammy)
+# - Update to Python 3.10
+# - Update to Blender 3.6 with its bpy module
 
-FROM ubuntu:20.04 as build
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV LC_ALL C.UTF-8
+
+FROM nvidia/cuda:12.3.1-base-ubuntu22.04
+
+# Set environment variables for language and locale
+ENV TERM linux
+ENV LANGUAGE C.UTF-8
 ENV LANG C.UTF-8
-
-WORKDIR /blenderpy
-
-# --- Install package dependencies
-RUN apt-get update --yes --fix-missing && \
-    apt-get install --yes --quiet --no-install-recommends \
-      python3.9-dev \
-      build-essential \
-      ca-certificates \
-      libopenexr-dev \
-      cmake \
-      git \
-      libffi-dev \
-      libssl-dev \
-      libx11-dev \
-      libxxf86vm-dev \
-      libxcursor-dev \
-      libxi-dev \
-      libxrandr-dev \
-      libxinerama-dev \
-      libglew-dev \
-      subversion
-
-# make python3.9 the default python
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.9 10 && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 10
-
-# --- Clone and compile Blender
-
-# RUN git clone https://git.blender.org/blender.git
-RUN git clone https://github.com/blender/blender.git --branch blender-v2.93-release --depth 1
-
-RUN mkdir lib && \
-    cd lib && \
-    svn checkout https://svn.blender.org/svnroot/bf-blender/trunk/lib/linux_centos7_x86_64
-
-RUN cd blender && \
-    make update
-
-# fix an annoying (no-consequence) bpy shutdown error
-# see https://github.com/google-research/kubric/issues/65
-COPY ./docker/cycles_free_patch.txt /blenderpy/blender
-RUN cd blender && patch -p1 < /blenderpy/blender/cycles_free_patch.txt
-
-
-RUN cd blender && make -j8 bpy
-
-# #################################################################################################
-# Stage 2
-# #################################################################################################
-
-
-FROM ubuntu:20.04
-
-LABEL Author="kubric-team <kubric@google.com>"
-LABEL Title="Blender"
-
-ENV DEBIAN_FRONTEND=noninteractive
 ENV LC_ALL C.UTF-8
-ENV LANG C.UTF-8
 
-# --- Install package dependencies
-# TODO: probably do not need all of them, or at least not in their dev version
-RUN apt-get update --yes --fix-missing && \
-    apt-get install --yes --quiet --no-install-recommends --reinstall \
-      python3.9-dev \
-      python3.9-distutils \
-      build-essential \
-      # for GIF creation
-      imagemagick \
-      # OpenEXR
-      libopenexr-dev \
-      curl \
-      ca-certificates \
-      git \
-      libffi-dev \
-      libssl-dev \
-      libx11-dev \
-      libxxf86vm-dev \
-      libxcursor-dev \
-      libxi-dev \
-      libxrandr-dev \
-      libxinerama-dev \
-      libglew-dev \
-      zlib1g-dev \
-      # further (optional) python build dependencies
-      libbz2-dev \
-      libgdbm-dev \
-      liblzma-dev \
-      libncursesw5-dev \
-      libreadline-dev \
-      libsqlite3-dev \
-      #tk-dev \  # installs libpng-dev which leads to blender linking errors
-      uuid-dev
+# Set non-interactive frontend for apt
+ARG DEBIAN_FRONTEND=noninteractive
 
-# make python3.9 the default python and python3
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.9 10 && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 10
+# Install necessary packages
+RUN apt-get update --yes --fix-missing \
+    && apt-get install --yes --quiet --no-install-recommends \
+    python3-dev python3-pip python3-distutils \
+    bison autoconf automake libtool yasm nasm tcl libasound2-dev \
+	libsndio-dev portaudio19-dev libportaudio2 pulseaudio libpulse-dev \
+	curl apt-utils software-properties-common build-essential \
+	git subversion cmake libx11-dev libxxf86vm-dev libxcursor-dev \
+	libxi-dev libxrandr-dev libxinerama-dev libglew-dev sudo \
+    # for GIF creation
+    imagemagick \
+    # OpenEXR
+    libopenexr-dev \
+    curl ca-certificates git libffi-dev libssl-dev libx11-dev \
+    libxxf86vm-dev libxcursor-dev libxi-dev libxrandr-dev  \
+    libxinerama-dev libglew-dev zlib1g-dev \
+    # further (optional) python build dependencies
+    libbz2-dev libgdbm-dev liblzma-dev libncursesw5-dev  \
+    libreadline-dev libsqlite3-dev uuid-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# install pip for python 3.9
-RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
-    python3.9 get-pip.py && \
-    rm get-pip.py
+# Clone the Blender repository
+RUN mkdir -p /blender-git
+WORKDIR /blender-git
+RUN git clone --recursive --branch blender-v3.6-release https://projects.blender.org/blender/blender.git
 
-# install bpy module within python3.9 
-COPY --from=build /blenderpy/build_linux_bpy/bin/bpy.so /usr/local/lib/python3.9/dist-packages/
-COPY --from=build /blenderpy/lib/linux_centos7_x86_64/python/lib/python3.9/site-packages/2.93 /usr/local/lib/python3.9/dist-packages/2.93
+# Install basic building environment
+RUN /blender-git/blender/build_files/build_environment/install_linux_packages.py
+
+# Download precompiled libs
+RUN mkdir -p /blender-git/lib
+WORKDIR /blender-git/lib
+RUN svn checkout https://svn.blender.org/svnroot/bf-blender/tags/blender-3.6-release/lib/linux_x86_64_glibc_228
+
+# Set the working directory to the Blender runtime directory
+WORKDIR /blender-git/blender
+
+# Enable CUDA support: https://github.com/google-research/kubric/issues/224
+COPY ./docker/enable_cuda_patch.txt /blender-git/blender
+RUN patch -p1 < /blender-git/blender/enable_cuda_patch.txt
+
+# Compile Blender python module
+RUN make update && make -j8 bpy
+
+# Set python3 as default python
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+
+# Set PYTHONPATH environment variable
+ENV PYTHONPATH="${PYTHONPATH}:/blender-git/build_linux_bpy/bin:/blender-git/lib/linux_x86_64_glibc_228/python/lib/python3.10/site-packages"
