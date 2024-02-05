@@ -7,7 +7,7 @@
 #   kubricdockerhub/kubruntu:latest \
 #   python3 examples/helloworld.py
 
-FROM vivalab/blender:latest
+FROM kangweiliao/blender:latest
 
 WORKDIR /kubric
 

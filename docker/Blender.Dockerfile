@@ -11,7 +11,7 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 
-FROM nvidia/cuda:12.3.1-base-ubuntu22.04
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
 
 # Set environment variables for language and locale
 ENV TERM linux
@@ -62,6 +62,13 @@ WORKDIR /blender-git/blender
 # Enable CUDA support: https://github.com/google-research/kubric/issues/224
 COPY ./docker/enable_cuda_patch.txt /blender-git/blender
 RUN patch -p1 < /blender-git/blender/enable_cuda_patch.txt
+
+# Enable CUDA support
+# Create a build directory for out-of-source build
+RUN mkdir /blender-git/build
+
+# Enable CUDA support and configure the build
+RUN cd ../build && cmake ../blender -DWITH_CYCLES_CUDA_BINARIES=ON
 
 # Compile Blender python module
 RUN make update && make -j8 bpy

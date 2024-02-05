@@ -186,14 +186,14 @@ class Blender(core.View):
     self.blender_scene.cycles.device = "GPU" if value else "CPU"
     if value:
       # call get_devices() to let Blender detect GPU devices
-      preferences = bpy.context.preferences
-      cycles_preferences = preferences.addons['cycles'].preferences
-      cuda_devices, opencl_devices = cycles_preferences.get_devices()
+      cycles_preferences = bpy.context.preferences.addons['cycles'].preferences
+      cycles_preferences.get_devices()
       cycles_preferences.compute_device_type = "CUDA"
-
+      cuda_devices = [d for d in cycles_preferences.devices if d.type == "CUDA"]
       for device in cuda_devices:
         logger.info("Activating: %s", device.name)
         device.use = True
+      logger.info("Using the following GPU Device: %s", [d.name for d in cuda_devices])
 
   def set_exr_output_path(self, path_prefix: Optional[PathLike]):
     """Set the target path prefix for EXR output.
