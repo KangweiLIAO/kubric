@@ -10,8 +10,8 @@ sphinx:
 
 build:
   tools:
-    python: "3.7"
-  os: ubuntu-20.04
+    python: "3.12"
+  os: ubuntu-22.04
 
 # Optionally set the version of Python and requirements required to build your docs
 python:
