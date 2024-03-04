@@ -5,13 +5,16 @@
 # - Update to Ubuntu 22.04 (Jammy)
 # - Update to Python 3.10
 # - Update to Blender 3.6 with its bpy module
+# - Based on: https://github.com/google-research/kubric/issues/224
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+###############################################
+# First stage for building Blender bpy module #
+###############################################
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04 as builder
 
 # Set environment variables for language and locale
 ENV TERM linux
@@ -22,59 +25,54 @@ ENV LC_ALL C.UTF-8
 # Set non-interactive frontend for apt
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Install necessary packages
-RUN apt-get update --yes --fix-missing \
-    && apt-get install --yes --quiet --no-install-recommends \
-    python3-dev python3-pip python3-distutils \
-    bison autoconf automake libtool yasm nasm tcl libasound2-dev \
-	libsndio-dev portaudio19-dev libportaudio2 pulseaudio libpulse-dev \
-	curl apt-utils software-properties-common build-essential \
-	git subversion cmake libx11-dev libxxf86vm-dev libxcursor-dev \
-	libxi-dev libxrandr-dev libxinerama-dev libglew-dev sudo \
-    # for GIF creation
-    imagemagick \
-    # OpenEXR
-    libopenexr-dev \
-    curl ca-certificates git libffi-dev libssl-dev libx11-dev \
-    libxxf86vm-dev libxcursor-dev libxi-dev libxrandr-dev  \
-    libxinerama-dev libglew-dev zlib1g-dev \
-    # further (optional) python build dependencies
-    libbz2-dev libgdbm-dev liblzma-dev libncursesw5-dev  \
-    libreadline-dev libsqlite3-dev uuid-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install basic dependencies
+RUN apt-get update --yes --fix-missing && \
+    apt-get install --yes --quiet --no-install-recommends \
+    apt-utils sudo build-essential git git-lfs python3-dev python3-pip subversion cmake \
+    libx11-dev libxxf86vm-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libegl-dev \
+    libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev linux-libc-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Clone the Blender repository
-RUN mkdir -p /blender-git
-WORKDIR /blender-git
-RUN git clone --recursive --branch blender-v3.6-release https://projects.blender.org/blender/blender.git
+RUN mkdir -p /blender-git && cd blender-git && \
+    git clone --depth 1 --recursive --branch blender-v3.6-release https://projects.blender.org/blender/blender.git
 
-# Install basic building environment
-RUN /blender-git/blender/build_files/build_environment/install_linux_packages.py
-
-# Download precompiled libs
-RUN mkdir -p /blender-git/lib
-WORKDIR /blender-git/lib
-RUN svn checkout https://svn.blender.org/svnroot/bf-blender/tags/blender-3.6-release/lib/linux_x86_64_glibc_228
-
-# Set the working directory to the Blender runtime directory
+# Install basic building environment and download precompiled libs
 WORKDIR /blender-git/blender
+RUN ./build_files/build_environment/install_linux_packages.py
+RUN ./build_files/utils/make_update.py --use-linux-libraries
+RUN mkdir -p /blender-git/lib && cd /blender-git/lib && \
+    svn checkout https://svn.blender.org/svnroot/bf-blender/tags/blender-3.6-release/lib/linux_x86_64_glibc_228
 
-# Enable CUDA support: https://github.com/google-research/kubric/issues/224
-COPY ./docker/enable_cuda_patch.txt /blender-git/blender
-RUN patch -p1 < /blender-git/blender/enable_cuda_patch.txt
+# Create a build directory for out-of-source build and compile Blender python module
+RUN mkdir /blender-git/build && cd /blender-git/build && \
+    cmake ../blender -DWITH_CYCLES_CUDA_BINARIES=ON -DWITH_COMPILER_ASAN=OFF
 
-# Enable CUDA support
-# Create a build directory for out-of-source build
-RUN mkdir /blender-git/build
-
-# Enable CUDA support and configure the build
-RUN cd ../build && cmake ../blender -DWITH_CYCLES_CUDA_BINARIES=ON
-
-# Compile Blender python module
 RUN make update && make -j8 bpy
+
+###########################################
+# Final stage for running the application #
+###########################################
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
+
+# Copy the built Blender python module from the builder stage
+COPY --from=builder /blender-git/build_linux_bpy/bin /blender-bin
+COPY --from=builder /blender-git/lib/linux_x86_64_glibc_228/python/lib/python3.10/site-packages /usr/local/lib/python3.10/dist-packages
+
+# Set environment variables
+ENV PYTHONPATH="${PYTHONPATH}:/blender-bin:/usr/local/lib/python3.10/dist-packages"
+
+# Set non-interactive frontend for apt
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install runtime dependencies if necessary
+RUN apt-get update --yes --fix-missing && \
+    apt-get install --yes --quiet --no-install-recommends \
+    python3-dev python3-pip libx11-6 libxxf86vm1 libxcursor1 libxi6 libxrandr2 libxinerama1 \
+    libegl1 libwayland-client0 libxkbcommon0 libdbus-1-3 libgomp1 libsm6 libgl1 libopenexr-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set python3 as default python
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 10
 
-# Set PYTHONPATH environment variable
-ENV PYTHONPATH="${PYTHONPATH}:/blender-git/build_linux_bpy/bin:/blender-git/lib/linux_x86_64_glibc_228/python/lib/python3.10/site-packages"
+WORKDIR /blender-bin

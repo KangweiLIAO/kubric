@@ -1,7 +1,7 @@
 apache-beam[gcp]
 bidict
 # bpy   (the Blender python module. Cannot be pip-installed)
-dataclasses
+dataclasses; python_version < "3.7"
 etils[epath_no_tf]
 cloudml-hypertune
 google-cloud-storage
